@@ -5,7 +5,6 @@
 #include <stdbool.h>
 #include "driver/gpio.h"
 #include "driver/adc.h"
-#include "rettype.h"
 
 
 /* -------------------------------------------------------------------------- */
@@ -47,9 +46,31 @@ typedef struct {
 /*                        FUNCTIONS (EXTERNAL LINKAGE)                        */
 /* -------------------------------------------------------------------------- */
 
-return_type_t joystick_configure(joystick_t *joystick);
-return_type_t joystick_read_raw(joystick_t *joystick);
-return_type_t joystick_calc_pos(joystick_t *joystick, uint32_t threshold, joystick_position_t *position);
+/**
+ * @brief Initialize the peripherals to which the joystick is connected
+ * 
+ * @param joystick Structure which holds the joystick information
+ * @return esp_err_t 
+ */
+esp_err_t joystick_configure(joystick_t *joystick);
+
+/**
+ * @brief Read raw values of the joystick and store it in the given structure
+ * 
+ * @param joystick Structure which holds the joystick information
+ * @return esp_err_t 
+ */
+esp_err_t joystick_read_raw(joystick_t *joystick);
+
+/**
+ * @brief Calculate the position of the joystick with the values stored in the given structure
+ * 
+ * @param joystick Structure which holds the joystick information
+ * @param threshold Threshold for out-of-center detection
+ * @param position Resulting joystick position structure
+ * @return esp_err_t 
+ */
+esp_err_t joystick_calc_pos(joystick_t *joystick, uint32_t threshold, joystick_position_t *position);
 
 
 #endif // __JOYSTICK_H__
