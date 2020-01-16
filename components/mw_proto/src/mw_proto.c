@@ -77,5 +77,5 @@ void mw_ser_crc( mw_frame_t *frame )
 
     frame.len = FRAME_LEN;
     
-    return frame
+    return frame;
  }

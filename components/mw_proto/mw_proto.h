@@ -11,7 +11,7 @@
 
 typedef struct {
     uint8_t data[FRAME_LEN];
-    uint8_t len = FRAME_LEN;
+    uint8_t len;
 } mw_frame_t;
 
 
