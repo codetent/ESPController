@@ -4,7 +4,8 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "${IDF_PATH}/components/**"
+                "${IDF_PATH}/components/**",
+                "${ESP_IDF_PATH}/components/**"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/clang",
