@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include "freertos/FreeRTOS.h"
@@ -34,11 +35,121 @@
 #define BT_TASK_TAG "BT_TASK"
 #define APP_MAIN_TAG "APP_MAIN"
 
-uint8_t bt_connected = 0U;
+static const esp_bt_inq_mode_t inq_mode = ESP_BT_INQ_MODE_GENERAL_INQUIRY;
+static const uint8_t inq_len = 30;
+static const uint8_t inq_num_rsps = 0;
+
+static esp_bd_addr_t peer_bd_addr;
+static uint8_t peer_bdname_len;
+static char peer_bdname[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
+
+static const esp_spp_sec_t sec_mask = ESP_SPP_SEC_NONE;
+static const esp_spp_role_t role_master = ESP_SPP_ROLE_SLAVE;
+
+static  uint32_t* spp_handle = NULL;
+
 
 /* -------------------------------------------------------------------------- */
 /*                        FUNCTIONS (INTERNAL LINKAGE)                        */
 /* -------------------------------------------------------------------------- */
+
+static bool get_name_from_eir(uint8_t *eir, char *bdname, uint8_t *bdname_len)
+{
+    bool status = false;
+    uint8_t *rmt_bdname = NULL;
+    uint8_t rmt_bdname_len = 0;
+
+    if (!eir) {
+        status = false;
+    }else{
+        rmt_bdname = esp_bt_gap_resolve_eir_data(eir, ESP_BT_EIR_TYPE_CMPL_LOCAL_NAME, &rmt_bdname_len);
+        if (!rmt_bdname) {
+            rmt_bdname = esp_bt_gap_resolve_eir_data(eir, ESP_BT_EIR_TYPE_SHORT_LOCAL_NAME, &rmt_bdname_len);
+        }
+
+        if (rmt_bdname) {
+            if (rmt_bdname_len > ESP_BT_GAP_MAX_BDNAME_LEN) {
+                rmt_bdname_len = ESP_BT_GAP_MAX_BDNAME_LEN;
+            }
+
+            if (bdname) {
+                memcpy(bdname, rmt_bdname, rmt_bdname_len);
+                bdname[rmt_bdname_len] = '\0';
+            }
+            if (bdname_len) {
+                *bdname_len = rmt_bdname_len;
+            }
+            status = true;
+        }
+    }
+
+    return status;
+}
+
+//GAP callback search for drone and conects t it
+static void esp_bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
+{
+    switch(event){
+    case ESP_BT_GAP_DISC_RES_EVT:
+        for (int i = 0; i < param->disc_res.num_prop; i++){
+            // Check if gat type 
+            if (param->disc_res.prop[i].type == ESP_BT_GAP_DEV_PROP_EIR
+                && get_name_from_eir(param->disc_res.prop[i].val, peer_bdname, &peer_bdname_len)){
+                esp_log_buffer_char(BT_TASK_TAG, peer_bdname, peer_bdname_len);
+                //Check if name is XMC_Bluetooth
+                if (strlen(BT_DEVICE_DRONE) == peer_bdname_len
+                    && strncmp(peer_bdname, BT_DEVICE_DRONE, peer_bdname_len) == 0) {
+                    // Start spp discovery
+                    memcpy(peer_bd_addr, param->disc_res.bda, ESP_BD_ADDR_LEN);
+                    esp_spp_start_discovery(peer_bd_addr);
+                    esp_bt_gap_cancel_discovery();
+                }
+            }
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+// Serial port profile callback
+static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
+{   
+    switch (event) {
+    case ESP_SPP_INIT_EVT:
+        ESP_LOGI(BT_TASK_TAG, "ESP_SPP_INIT_EVT");
+        esp_bt_dev_set_device_name("ESP32");
+        esp_bt_gap_set_scan_mode(ESP_BT_SCAN_MODE_CONNECTABLE_DISCOVERABLE);
+        esp_bt_gap_start_discovery(inq_mode, inq_len, inq_num_rsps);
+
+        break;
+    case ESP_SPP_DISCOVERY_COMP_EVT:
+        // Connect to SPP server
+        ESP_LOGI(BT_TASK_TAG, "ESP_SPP_DISCOVERY_COMP_EVT");
+        if (param->disc_comp.status == ESP_SPP_SUCCESS) {
+            esp_spp_connect(sec_mask, role_master, param->disc_comp.scn[0], peer_bd_addr);
+        }
+        break;
+    case ESP_SPP_OPEN_EVT:
+        // Set handle
+        ESP_LOGI(BT_TASK_TAG, "ESP_SPP_OPEN_EVT");
+        spp_handle = &param->open.handle;
+        
+        break;
+    case ESP_SPP_CLOSE_EVT:
+        // Set handle to NULL
+        ESP_LOGI(BT_TASK_TAG, "ESP_SPP_CLOSE_EVT");
+        if(*spp_handle == param->close.handle)
+            spp_handle = NULL;
+
+        break;
+    case ESP_SPP_WRITE_EVT:
+        ESP_LOGI(BT_TASK_TAG, "ESP_SPP_WRITE_EVT");
+        break;
+    default:
+        break;
+    }
+}
 
 static void task_controller(void *args)
 {
@@ -130,54 +241,32 @@ static void task_controller(void *args)
 static void task_bt(void *args)
 {
     mw_frame_t *mw_frame = (mw_frame_t*) args;
+    esp_spp_mode_t esp_spp_mode = ESP_SPP_MODE_CB;
 
     // Init bluetooth
 
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_BLE));
 
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-    if ((ret = esp_bt_controller_init(&bt_cfg)) != ESP_OK) {
-        ESP_LOGE(BT_TASK_TAG, "%s initialize controller failed: %s\n", __func__, esp_err_to_name(ret));
-        return;
-    }
+    ESP_ERROR_CHECK(esp_bt_controller_init(&bt_cfg));
 
-    if ((ret = esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT)) != ESP_OK) {
-        ESP_LOGE(BT_TASK_TAG, "%s enable controller failed: %s\n", __func__, esp_err_to_name(ret));
-        return;
-    }
+    ESP_ERROR_CHECK(esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT));
 
-    if ((ret = esp_bluedroid_init()) != ESP_OK) {
-        ESP_LOGE(BT_TASK_TAG, "%s initialize bluedroid failed: %s\n", __func__, esp_err_to_name(ret));
-        return;
-    }
+    ESP_ERROR_CHECK(esp_bluedroid_init());
 
-    if ((ret = esp_bluedroid_enable()) != ESP_OK) {
-        ESP_LOGE(BT_TASK_TAG, "%s enable bluedroid failed: %s\n", __func__, esp_err_to_name(ret));
-        return;
-    }
+    ESP_ERROR_CHECK(esp_bluedroid_enable());
 
-    if ((ret = esp_bt_gap_register_callback(esp_bt_gap_cb)) != ESP_OK) {
-        ESP_LOGE(BT_TASK_TAG, "%s gap register failed: %s\n", __func__, esp_err_to_name(ret));
-        return;
-    }
+    ESP_ERROR_CHECK(esp_bt_gap_register_callback(esp_bt_gap_cb));
 
-    if ((ret = esp_spp_register_callback(esp_spp_cb)) != ESP_OK) {
-        ESP_LOGE(BT_TASK_TAG, "%s spp register failed: %s\n", __func__, esp_err_to_name(ret));
-        return;
-    }
+    ESP_ERROR_CHECK(esp_spp_register_callback(esp_spp_cb));
 
-    if ((ret = esp_spp_init(esp_spp_mode)) != ESP_OK) {
-        ESP_LOGE(BT_TASK_TAG, "%s spp init failed: %s\n", __func__, esp_err_to_name(ret));
-        return;
-    }
+    ESP_ERROR_CHECK(esp_spp_init(esp_spp_mode));
     
 
     while (1U) 
     {
-        if(bt_connected){
-            if(esp_spp_write(my_hand, MW_PROTO_FRAME_LEN, mw_frame->data) != ESP_OK){
-                ESP_LOGE(BT_TASK_TAG, "Sending frame failed!\n");
-            }
+        if(spp_handle != NULL){
+            ESP_ERROR_CHECK(esp_spp_write(*spp_handle, MW_PROTO_FRAME_LEN, mw_frame->data));
         }
         vTaskDelay(pdMS_TO_TICKS(100U));
     }
@@ -200,7 +289,7 @@ void app_main()
 
     xTaskCreate(
         task_controller,
-        "INTERFACE",
+        "CONTROLLER",
         2048U,
         (void*) &mw_frame,
         tskIDLE_PRIORITY,
@@ -208,8 +297,8 @@ void app_main()
     );
 
     xTaskCreate(
-        task_controller,
-        "INTERFACE",
+        task_bt,
+        "BT",
         2048U,
         (void*) &mw_frame,
         tskIDLE_PRIORITY,
