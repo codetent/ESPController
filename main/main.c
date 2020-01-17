@@ -3,12 +3,19 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
 #include "controller.h"
 #include "mw_proto.h"
+
 #include "esp_log.h"
 #include "esp_bt.h"
+
+#include "nvs.h"
+#include "nvs_flash.h"
+
 #include "esp_bt_main.h"
 #include "esp_gap_bt_api.h"
 #include "esp_bt_device.h"
@@ -45,14 +52,17 @@ static char peer_bdname[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
 
 static const esp_spp_sec_t sec_mask = ESP_SPP_SEC_NONE;
 static const esp_spp_role_t role_master = ESP_SPP_ROLE_SLAVE;
-
-static  uint32_t* spp_handle = NULL;
+static bool bt_connected = false;
+static bool arm_enabled = false;
+static  uint32_t spp_handle;
+static mw_frame_t mw_frame;
 
 
 /* -------------------------------------------------------------------------- */
 /*                        FUNCTIONS (INTERNAL LINKAGE)                        */
 /* -------------------------------------------------------------------------- */
 
+// EIR data to board name and len
 static esp_err_t get_name_from_eir(uint8_t *eir, char *bdname, uint8_t *bdname_len)
 {
     esp_err_t status = ESP_FAIL;
@@ -131,14 +141,17 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
     case ESP_SPP_OPEN_EVT:
         // Set handle
         ESP_LOGI(BT_TASK_TAG, "ESP_SPP_OPEN_EVT");
-        spp_handle = &param->open.handle;
-        
+        spp_handle = param->open.handle;
+        bt_connected = true;
+        arm_enabled = true;
         break;
     case ESP_SPP_CLOSE_EVT:
         // Set handle to NULL
         ESP_LOGI(BT_TASK_TAG, "ESP_SPP_CLOSE_EVT");
-        if(*spp_handle == param->close.handle)
-            spp_handle = NULL;
+        if(spp_handle == param->close.handle){
+            bt_connected = false;
+            arm_enabled = false;
+        }
 
         break;
     case ESP_SPP_WRITE_EVT:
@@ -151,7 +164,6 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 
 static void task_controller(void *args)
 {
-    mw_frame_t *mw_frame = (mw_frame_t*) args;
     controller_t controller = {
         .config = {
             .x_adc_channel = CONTROLLER_X_ADC_CH,
@@ -185,7 +197,9 @@ static void task_controller(void *args)
         // Button check if pressed
         if(controller.arm_value && !last_arm_value){
             ESP_LOGI(CTR_TASK_TAG, "ARM pressed!");
-            ESP_ERROR_CHECK(mw_toggle_arm(mw_frame));
+            if(arm_enabled){
+                ESP_ERROR_CHECK(mw_toggle_arm(&mw_frame));
+            }
         }
         if(controller.thr_down_value && !last_thr_down_value){
             ESP_LOGI(CTR_TASK_TAG, "THR_DOWN pressed!");
@@ -194,7 +208,7 @@ static void task_controller(void *args)
             }else{
                 throttle -= THROTTLE_STEP;
             }
-            ESP_ERROR_CHECK(mw_set_throttle(throttle, mw_frame));
+            ESP_ERROR_CHECK(mw_set_throttle(throttle, &mw_frame));
         }
         if(controller.thr_up_value && !last_thr_up_value){
             ESP_LOGI(CTR_TASK_TAG, "THR_UP pressed!");
@@ -203,7 +217,7 @@ static void task_controller(void *args)
             }else{
                 throttle += THROTTLE_STEP;
             }
-            ESP_ERROR_CHECK(mw_set_throttle(throttle, mw_frame));
+            ESP_ERROR_CHECK(mw_set_throttle(throttle, &mw_frame));
         }
         last_arm_value = controller.arm_value;
         last_thr_down_value = controller.thr_down_value;
@@ -217,7 +231,7 @@ static void task_controller(void *args)
         }else if(position.x_position == 2U){
             roll = MW_MID_VALUE + position.x_delta / 3U;
         }
-        ESP_ERROR_CHECK(mw_set_roll(roll, mw_frame));
+        ESP_ERROR_CHECK(mw_set_roll(roll, &mw_frame));
 
         if(position.y_position == 0U){
             pitch = MW_MID_VALUE;
@@ -226,9 +240,9 @@ static void task_controller(void *args)
         }else if(position.y_position == 2U){
             pitch = MW_MID_VALUE + position.y_delta / 3U;
         }
-        ESP_ERROR_CHECK(mw_set_pitch(pitch, mw_frame));
+        ESP_ERROR_CHECK(mw_set_pitch(pitch, &mw_frame));
 
-        ESP_LOGI(CTR_TASK_TAG, "ROLL: %d, PITCH: %d, THOTTLE: %d\n", roll, pitch, throttle);
+        //ESP_LOGI(CTR_TASK_TAG, "ROLL: %d, PITCH: %d, THOTTLE: %d\n", roll, pitch, throttle);
 
         vTaskDelay(pdMS_TO_TICKS(100U));
     }
@@ -238,8 +252,16 @@ static void task_controller(void *args)
 
 static void task_bt(void *args)
 {
-    mw_frame_t *mw_frame = (mw_frame_t*) args;
     esp_spp_mode_t esp_spp_mode = ESP_SPP_MODE_CB;
+    esp_err_t ret;
+
+    // initializing non volatile storage
+    ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK( ret );
 
     // Init bluetooth
 
@@ -263,8 +285,9 @@ static void task_bt(void *args)
 
     while (1U) 
     {
-        if(spp_handle != NULL){
-            ESP_ERROR_CHECK(esp_spp_write(*spp_handle, MW_PROTO_FRAME_LEN, mw_frame->data));
+        if(bt_connected){
+            ESP_ERROR_CHECK(esp_spp_write(spp_handle, MW_PROTO_FRAME_LEN, mw_frame.data));
+            esp_log_buffer_hex(BT_TASK_TAG, mw_frame.data, MW_PROTO_FRAME_LEN);
         }
         vTaskDelay(pdMS_TO_TICKS(100U));
     }
@@ -283,15 +306,14 @@ void app_main()
 
     TaskHandle_t handle_task_controller = NULL;
     TaskHandle_t handle_task_bt = NULL;
-    mw_frame_t mw_frame;
 
     ESP_ERROR_CHECK(init_mw_frame(&mw_frame));
 
     if( pdPASS != xTaskCreate(
         task_controller,
         "CONTROLLER",
-        2048U,
-        (void*) &mw_frame,
+        4056U,
+        NULL,
         tskIDLE_PRIORITY,
         &handle_task_controller
     )){
@@ -302,7 +324,7 @@ void app_main()
         task_bt,
         "BT",
         2048U,
-        (void*) &mw_frame,
+        NULL,
         tskIDLE_PRIORITY,
         &handle_task_bt
     )){
