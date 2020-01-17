@@ -5,7 +5,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "controller.h"
-
+#include "mw_proto.h"
+#include "esp_log.h"
+#include "esp_err.h"
 
 /* -------------------------------------------------------------------------- */
 /*                                   DEFINES                                  */
@@ -17,13 +19,19 @@
 #define CONTROLLER_THR_DOWN_GPIO GPIO_NUM_35
 #define CONTROLLER_THR_UP_GPIO GPIO_NUM_32
 
+#define BUTTON_RELEASED 1U
+#define BUTTON_PRESSED 0U
+#define THROTTLE_STEP 50U
+
+#define CTR_TASK_TAG "CTR_TASK"
 
 /* -------------------------------------------------------------------------- */
 /*                        FUNCTIONS (INTERNAL LINKAGE)                        */
 /* -------------------------------------------------------------------------- */
 
-static void task_interface(void *args)
+static void task_controller(void *args)
 {
+    mw_frame_t *mw_frame = (mw_frame_t*) args;
     controller_t controller = {
         .config = {
             .x_adc_channel = CONTROLLER_X_ADC_CH,
@@ -33,7 +41,16 @@ static void task_interface(void *args)
             .thr_down_gpio_num = CONTROLLER_THR_DOWN_GPIO 
         }
     };
+
     controller_position_t position = {0U};
+
+    uint8_t last_arm_value = BUTTON_RELEASED;
+    uint8_t last_thr_down_value = BUTTON_RELEASED;
+    uint8_t last_thr_up_value = BUTTON_RELEASED;
+
+    uint16_t roll = MW_MID_VALUE;
+    uint16_t pitch = MW_MID_VALUE;
+    uint16_t throttle = MW_MIN_VALUE;
 
     // Configure periphery
     adc1_config_width(ADC_WIDTH_BIT_12);
@@ -44,11 +61,56 @@ static void task_interface(void *args)
         // Get controller position
         controller_read_raw(&controller);
         controller_calc_pos(&controller, 100U, &position);
+        
+        // Button check if pressed
+        if(controller.arm_value && !last_arm_value){
+            ESP_LOGI(CTR_TASK_TAG, "ARM pressed!");
+            ESP_ERROR_CHECK(mw_toggle_arm(mw_frame));
+        }
+        if(controller.thr_down_value && !last_thr_down_value){
+            ESP_LOGI(CTR_TASK_TAG, "THR_DOWN pressed!");
+            if((throttle - THROTTLE_STEP) <= MW_MIN_VALUE){
+                throttle = MW_MIN_VALUE;
+            }else{
+                throttle -= THROTTLE_STEP;
+            }
+            ESP_ERROR_CHECK(mw_set_throttle(throttle, mw_frame));
+        }
+        if(controller.thr_up_value && !last_thr_up_value){
+            ESP_LOGI(CTR_TASK_TAG, "THR_UP pressed!");
+            if((throttle + THROTTLE_STEP) >= MW_MAX_VALUE){
+                throttle = MW_MAX_VALUE;
+            }else{
+                throttle += THROTTLE_STEP;
+            }
+            ESP_ERROR_CHECK(mw_set_throttle(throttle, mw_frame));
+        }
+        last_arm_value = controller.arm_value;
+        last_thr_down_value = controller.thr_down_value;
+        last_thr_up_value = controller.thr_up_value;
 
-        // Print result
-        printf("X: %d - %d Y: %d - %d ARM: %d, THR_DOWN: %d, THR_UP: %d\n", position.x_position, position.x_delta, position.y_position, position.y_delta,
-                                                 controller.arm_value, controller.thr_down_value, controller.thr_up_value);
-        vTaskDelay(pdMS_TO_TICKS(100));
+        // Check joystick values
+        if(position.x_position == 0U){
+            roll = MW_MID_VALUE;
+        }else if(position.x_position == 1U){
+            roll = MW_MID_VALUE - position.x_delta / 3U;
+        }else if(position.x_position == 2U){
+            roll = MW_MID_VALUE + position.x_delta / 3U;
+        }
+        ESP_ERROR_CHECK(mw_set_roll(roll, mw_frame));
+
+        if(position.y_position == 0U){
+            pitch = MW_MID_VALUE;
+        }else if(position.y_position == 1U){
+            pitch = MW_MID_VALUE - position.y_delta / 3U;
+        }else if(position.y_position == 2U){
+            pitch = MW_MID_VALUE + position.y_delta / 3U;
+        }
+        ESP_ERROR_CHECK(mw_set_pitch(pitch, mw_frame));
+
+        ESP_LOGI(CTR_TASK_TAG, "ROLL: %d, PITCH: %d, THOTTLE: %d\n", roll, pitch, throttle);
+
+        vTaskDelay(pdMS_TO_TICKS(100U));
     }
 
     vTaskDelete(NULL);
@@ -62,12 +124,15 @@ static void task_interface(void *args)
 void app_main()
 {
     TaskHandle_t handle_task_interface = NULL;
+    mw_frame_t mw_frame;
+
+    ESP_ERROR_CHECK(init_mw_frame(&mw_frame));
 
     xTaskCreate(
-        task_interface,
+        task_controller,
         "INTERFACE",
         2048U,
-        NULL,
+        (void*) &mw_frame,
         tskIDLE_PRIORITY,
         &handle_task_interface
     );
