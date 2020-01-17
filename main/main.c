@@ -7,6 +7,7 @@
 #include "controller.h"
 #include "mw_proto.h"
 #include "esp_log.h"
+#include "esp_err.h"
 
 /* -------------------------------------------------------------------------- */
 /*                                   DEFINES                                  */
@@ -20,7 +21,7 @@
 
 #define BUTTON_RELEASED 1U
 #define BUTTON_PRESSED 0U
-#define THROTTLE_STEP 50
+#define THROTTLE_STEP 50U
 
 #define CTR_TASK_TAG "CTR_TASK"
 
@@ -63,37 +64,32 @@ static void task_controller(void *args)
         
         // Button check if pressed
         if(controller.arm_value && !last_arm_value){
-            ESP_LOGI(CTR_TASK_TAG, "ARM pressed!\n");
-            if( mw_toggle_arm(mw_frame) != ESP_OK){
-                // TODO REBOOT? / LOGERROR
-            }
+            ESP_LOGI(CTR_TASK_TAG, "ARM pressed!");
+            ESP_ERROR_CHECK(mw_toggle_arm(mw_frame));
         }
         if(controller.thr_down_value && !last_thr_down_value){
-            ESP_LOGI(CTR_TASK_TAG, "THR_DOWN pressed!\n");
+            ESP_LOGI(CTR_TASK_TAG, "THR_DOWN pressed!");
             if((throttle - THROTTLE_STEP) <= MW_MIN_VALUE){
                 throttle = MW_MIN_VALUE;
             }else{
                 throttle -= THROTTLE_STEP;
             }
-
-            if( mw_set_throttle(throttle, mw_frame) != ESP_OK){
-                // TODO REBOOT? / LOGERROR
-            }
+            ESP_ERROR_CHECK(mw_set_throttle(throttle, mw_frame));
         }
         if(controller.thr_up_value && !last_thr_up_value){
-            ESP_LOGI(CTR_TASK_TAG, "THR_UP pressed!\n");
+            ESP_LOGI(CTR_TASK_TAG, "THR_UP pressed!");
             if((throttle + THROTTLE_STEP) >= MW_MAX_VALUE){
                 throttle = MW_MAX_VALUE;
             }else{
                 throttle += THROTTLE_STEP;
             }
-
-            if( mw_set_throttle(throttle, mw_frame) != ESP_OK){
-                // TODO REBOOT? / LOGERROR
-            }
+            ESP_ERROR_CHECK(mw_set_throttle(throttle, mw_frame));
         }
+        last_arm_value = controller.arm_value;
+        last_thr_down_value = controller.thr_down_value;
+        last_thr_up_value = controller.thr_up_value;
 
-        // Set Flight parameter
+        // Check joystick values
         if(position.x_position == 0U){
             roll = MW_MID_VALUE;
         }else if(position.x_position == 1U){
@@ -101,10 +97,7 @@ static void task_controller(void *args)
         }else if(position.x_position == 2U){
             roll = MW_MID_VALUE + position.x_delta / 3U;
         }
-
-        if( mw_set_roll(roll, mw_frame) != ESP_OK){
-                // TODO REBOOT? / LOGERROR
-        }
+        ESP_ERROR_CHECK(mw_set_roll(roll, mw_frame));
 
         if(position.y_position == 0U){
             pitch = MW_MID_VALUE;
@@ -113,16 +106,9 @@ static void task_controller(void *args)
         }else if(position.y_position == 2U){
             pitch = MW_MID_VALUE + position.y_delta / 3U;
         }
-
-        if( mw_set_pitch(pitch, mw_frame) != ESP_OK){
-                // TODO REBOOT? / LOGERROR
-        }
+        ESP_ERROR_CHECK(mw_set_pitch(pitch, mw_frame));
 
         ESP_LOGI(CTR_TASK_TAG, "ROLL: %d, PITCH: %d, THOTTLE: %d\n", roll, pitch, throttle);
-        
-        last_arm_value = controller.arm_value;
-        last_thr_down_value = controller.thr_down_value;
-        last_thr_up_value = controller.thr_up_value;
 
         vTaskDelay(pdMS_TO_TICKS(100U));
     }
@@ -140,9 +126,7 @@ void app_main()
     TaskHandle_t handle_task_interface = NULL;
     mw_frame_t mw_frame;
 
-    if (init_mw_frame(&mw_frame) != ESP_OK){
-        // TODO REBOOT? / LOGERROR
-    }
+    ESP_ERROR_CHECK(init_mw_frame(&mw_frame));
 
     xTaskCreate(
         task_controller,
