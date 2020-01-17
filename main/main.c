@@ -53,15 +53,13 @@ static  uint32_t* spp_handle = NULL;
 /*                        FUNCTIONS (INTERNAL LINKAGE)                        */
 /* -------------------------------------------------------------------------- */
 
-static bool get_name_from_eir(uint8_t *eir, char *bdname, uint8_t *bdname_len)
+static esp_err_t get_name_from_eir(uint8_t *eir, char *bdname, uint8_t *bdname_len)
 {
-    bool status = false;
+    esp_err_t status = ESP_FAIL;
     uint8_t *rmt_bdname = NULL;
-    uint8_t rmt_bdname_len = 0;
+    uint8_t rmt_bdname_len = 0U;
 
-    if (!eir) {
-        status = false;
-    }else{
+    if (eir){
         rmt_bdname = esp_bt_gap_resolve_eir_data(eir, ESP_BT_EIR_TYPE_CMPL_LOCAL_NAME, &rmt_bdname_len);
         if (!rmt_bdname) {
             rmt_bdname = esp_bt_gap_resolve_eir_data(eir, ESP_BT_EIR_TYPE_SHORT_LOCAL_NAME, &rmt_bdname_len);
@@ -79,7 +77,7 @@ static bool get_name_from_eir(uint8_t *eir, char *bdname, uint8_t *bdname_len)
             if (bdname_len) {
                 *bdname_len = rmt_bdname_len;
             }
-            status = true;
+            status = ESP_OK;
         }
     }
 
@@ -91,14 +89,14 @@ static void esp_bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
 {
     switch(event){
     case ESP_BT_GAP_DISC_RES_EVT:
-        for (int i = 0; i < param->disc_res.num_prop; i++){
+        for (int i = 0U; i < param->disc_res.num_prop; i++){
             // Check if gat type 
-            if (param->disc_res.prop[i].type == ESP_BT_GAP_DEV_PROP_EIR
-                && get_name_from_eir(param->disc_res.prop[i].val, peer_bdname, &peer_bdname_len)){
+            if (param->disc_res.prop[i].type == ESP_BT_GAP_DEV_PROP_EIR && 
+                ESP_OK == get_name_from_eir(param->disc_res.prop[i].val, peer_bdname, &peer_bdname_len)){
                 esp_log_buffer_char(BT_TASK_TAG, peer_bdname, peer_bdname_len);
                 //Check if name is XMC_Bluetooth
-                if (strlen(BT_DEVICE_DRONE) == peer_bdname_len
-                    && strncmp(peer_bdname, BT_DEVICE_DRONE, peer_bdname_len) == 0) {
+                if (strlen(BT_DEVICE_DRONE) == peer_bdname_len && 
+                    strncmp(peer_bdname, BT_DEVICE_DRONE, peer_bdname_len) == 0U) {
                     // Start spp discovery
                     memcpy(peer_bd_addr, param->disc_res.bda, ESP_BD_ADDR_LEN);
                     esp_spp_start_discovery(peer_bd_addr);
