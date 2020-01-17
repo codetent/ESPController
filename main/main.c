@@ -281,27 +281,33 @@ static void task_bt(void *args)
 
 void app_main()
 {
+    ESP_LOGI(APP_MAIN_TAG, "App started!");
+
     TaskHandle_t handle_task_controller = NULL;
     TaskHandle_t handle_task_bt = NULL;
     mw_frame_t mw_frame;
 
     ESP_ERROR_CHECK(init_mw_frame(&mw_frame));
 
-    xTaskCreate(
+    if( pdPASS != xTaskCreate(
         task_controller,
         "CONTROLLER",
         2048U,
         (void*) &mw_frame,
         tskIDLE_PRIORITY,
         &handle_task_controller
-    );
+    )){
+        ESP_LOGE(APP_MAIN_TAG, "Failed to create Task Controller");
+    }
 
-    xTaskCreate(
+    if( pdPASS != xTaskCreate(
         task_bt,
         "BT",
         2048U,
         (void*) &mw_frame,
         tskIDLE_PRIORITY,
         &handle_task_bt
-    );
+    )){
+        ESP_LOGE(APP_MAIN_TAG, "Failed to create Task BT");
+    }
 }
