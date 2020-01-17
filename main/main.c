@@ -7,6 +7,11 @@
 #include "controller.h"
 #include "mw_proto.h"
 #include "esp_log.h"
+#include "esp_bt.h"
+#include "esp_bt_main.h"
+#include "esp_gap_bt_api.h"
+#include "esp_bt_device.h"
+#include "esp_spp_api.h"
 
 /* -------------------------------------------------------------------------- */
 /*                                   DEFINES                                  */
@@ -22,7 +27,13 @@
 #define BUTTON_PRESSED 0U
 #define THROTTLE_STEP 50
 
+#define BT_DEVICE_DRONE "XMC-Bluetooth"
+
 #define CTR_TASK_TAG "CTR_TASK"
+#define BT_TASK_TAG "BT_TASK"
+#define APP_MAIN_TAG "APP_MAIN"
+
+uint8_t bt_connected = 0U;
 
 /* -------------------------------------------------------------------------- */
 /*                        FUNCTIONS (INTERNAL LINKAGE)                        */
@@ -65,7 +76,8 @@ static void task_controller(void *args)
         if(controller.arm_value && !last_arm_value){
             ESP_LOGI(CTR_TASK_TAG, "ARM pressed!\n");
             if( mw_toggle_arm(mw_frame) != ESP_OK){
-                // TODO REBOOT? / LOGERROR
+                ESP_LOGE(CTR_TASK_TAG, "Initializing  mw_toggle_arm failed!\n");
+                return;
             }
         }
         if(controller.thr_down_value && !last_thr_down_value){
@@ -77,7 +89,8 @@ static void task_controller(void *args)
             }
 
             if( mw_set_throttle(throttle, mw_frame) != ESP_OK){
-                // TODO REBOOT? / LOGERROR
+                ESP_LOGE(CTR_TASK_TAG, "Initializing  mw_set_throttle failed!\n");
+                return;
             }
         }
         if(controller.thr_up_value && !last_thr_up_value){
@@ -89,7 +102,8 @@ static void task_controller(void *args)
             }
 
             if( mw_set_throttle(throttle, mw_frame) != ESP_OK){
-                // TODO REBOOT? / LOGERROR
+                ESP_LOGE(CTR_TASK_TAG, "Initializing  mw_set_throttle failed!\n");
+                return;
             }
         }
 
@@ -103,7 +117,8 @@ static void task_controller(void *args)
         }
 
         if( mw_set_roll(roll, mw_frame) != ESP_OK){
-                // TODO REBOOT? / LOGERROR
+            ESP_LOGE(CTR_TASK_TAG, "Initializing  mw_set_roll failed!\n");
+            return;
         }
 
         if(position.y_position == 0U){
@@ -115,7 +130,8 @@ static void task_controller(void *args)
         }
 
         if( mw_set_pitch(pitch, mw_frame) != ESP_OK){
-                // TODO REBOOT? / LOGERROR
+            ESP_LOGE(CTR_TASK_TAG, "Initializing  mw_set_pitch failed!\n");
+            return;
         }
 
         ESP_LOGI(CTR_TASK_TAG, "ROLL: %d, PITCH: %d, THOTTLE: %d\n", roll, pitch, throttle);
@@ -130,6 +146,64 @@ static void task_controller(void *args)
     vTaskDelete(NULL);
 }
 
+static void task_bt(void *args)
+{
+    mw_frame_t *mw_frame = (mw_frame_t*) args;
+
+    // Init bluetooth
+
+    ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_BLE));
+
+    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+    if ((ret = esp_bt_controller_init(&bt_cfg)) != ESP_OK) {
+        ESP_LOGE(BT_TASK_TAG, "%s initialize controller failed: %s\n", __func__, esp_err_to_name(ret));
+        return;
+    }
+
+    if ((ret = esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT)) != ESP_OK) {
+        ESP_LOGE(BT_TASK_TAG, "%s enable controller failed: %s\n", __func__, esp_err_to_name(ret));
+        return;
+    }
+
+    if ((ret = esp_bluedroid_init()) != ESP_OK) {
+        ESP_LOGE(BT_TASK_TAG, "%s initialize bluedroid failed: %s\n", __func__, esp_err_to_name(ret));
+        return;
+    }
+
+    if ((ret = esp_bluedroid_enable()) != ESP_OK) {
+        ESP_LOGE(BT_TASK_TAG, "%s enable bluedroid failed: %s\n", __func__, esp_err_to_name(ret));
+        return;
+    }
+
+    if ((ret = esp_bt_gap_register_callback(esp_bt_gap_cb)) != ESP_OK) {
+        ESP_LOGE(BT_TASK_TAG, "%s gap register failed: %s\n", __func__, esp_err_to_name(ret));
+        return;
+    }
+
+    if ((ret = esp_spp_register_callback(esp_spp_cb)) != ESP_OK) {
+        ESP_LOGE(BT_TASK_TAG, "%s spp register failed: %s\n", __func__, esp_err_to_name(ret));
+        return;
+    }
+
+    if ((ret = esp_spp_init(esp_spp_mode)) != ESP_OK) {
+        ESP_LOGE(BT_TASK_TAG, "%s spp init failed: %s\n", __func__, esp_err_to_name(ret));
+        return;
+    }
+    
+
+    while (1U) 
+    {
+        if(bt_connected){
+            if(esp_spp_write(my_hand, MW_PROTO_FRAME_LEN, mw_frame->data) != ESP_OK){
+                ESP_LOGE(BT_TASK_TAG, "Sending frame failed!\n");
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(100U));
+    }
+
+    vTaskDelete(NULL);
+}
+
 
 /* -------------------------------------------------------------------------- */
 /*                        FUNCTIONS (EXTERNAL LINKAGE)                        */
@@ -137,11 +211,13 @@ static void task_controller(void *args)
 
 void app_main()
 {
-    TaskHandle_t handle_task_interface = NULL;
+    TaskHandle_t handle_task_controller = NULL;
+    TaskHandle_t handle_task_bt = NULL;
     mw_frame_t mw_frame;
 
     if (init_mw_frame(&mw_frame) != ESP_OK){
-        // TODO REBOOT? / LOGERROR
+        ESP_LOGE(APP_MAIN_TAG, "Initializing  mw-frame failed!\n");
+        return;
     }
 
     xTaskCreate(
@@ -150,6 +226,15 @@ void app_main()
         2048U,
         (void*) &mw_frame,
         tskIDLE_PRIORITY,
-        &handle_task_interface
+        &handle_task_controller
+    );
+
+    xTaskCreate(
+        task_controller,
+        "INTERFACE",
+        2048U,
+        (void*) &mw_frame,
+        tskIDLE_PRIORITY,
+        &handle_task_bt
     );
 }
