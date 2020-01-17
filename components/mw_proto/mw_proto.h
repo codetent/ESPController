@@ -5,6 +5,12 @@
 #include "esp_err.h"
 
 #define MW_PROTO_FRAME_LEN 16
+#define MW_MIN_VALUE 1000U
+#define MW_MID_VALUE 1500U
+#define MW_MAX_VALUE 2000U
+#define MW_MSP_SET_RAW_RC_TYPE 200U
+#define MW_MSP_SET_RAW_RC_LEN 10U
+
 
 /* -------------------------------------------------------------------------- */
 /*                                  TYPEDEFS                                  */

@@ -19,10 +19,10 @@ esp_err_t mw_set_roll( uint16_t value, mw_frame_t *frame )
     if(frame == NULL){
         status = ESP_ERR_INVALID_ARG;
     }else{
-       if(value < 1000U){
-            value = 1000U;
-        }else if(value > 2000U){
-            value = 2000U;
+       if(value < MW_MIN_VALUE){
+            value = MW_MIN_VALUE;
+        }else if(value > MW_MAX_VALUE){
+            value = MW_MAX_VALUE;
         }
 
         frame->data[5] = (uint8_t) value;
@@ -42,10 +42,10 @@ esp_err_t mw_set_pitch( uint16_t value, mw_frame_t *frame )
     if(frame == NULL){
         status = ESP_ERR_INVALID_ARG;
     }else{
-       if(value < 1000U){
-            value = 1000U;
-        }else if(value > 2000U){
-            value = 2000U;
+       if(value < MW_MIN_VALUE){
+            value = MW_MIN_VALUE;
+        }else if(value > MW_MAX_VALUE){
+            value = MW_MAX_VALUE;
         }
 
         frame->data[7] = (uint8_t) value;
@@ -65,10 +65,10 @@ esp_err_t mw_set_throttle( uint16_t value, mw_frame_t *frame )
     if(frame == NULL){
         status = ESP_ERR_INVALID_ARG;
     }else{
-       if(value < 1000U){
-            value = 1000U;
-        }else if(value > 2000U){
-            value = 2000U;
+       if(value < MW_MIN_VALUE){
+            value = MW_MIN_VALUE;
+        }else if(value > MW_MAX_VALUE){
+            value = MW_MAX_VALUE;
         }
 
         frame->data[9] = (uint8_t) value;
@@ -88,10 +88,10 @@ esp_err_t mw_set_yaw( uint16_t value, mw_frame_t *frame )
     if(frame == NULL){
         status = ESP_ERR_INVALID_ARG;
     }else{
-       if(value < 1000U){
-            value = 1000U;
-        }else if(value > 2000U){
-            value = 2000U;
+       if(value < MW_MIN_VALUE){
+            value = MW_MIN_VALUE;
+        }else if(value > MW_MAX_VALUE){
+            value = MW_MAX_VALUE;
         }
 
         frame->data[11] = (uint8_t) value;
@@ -111,10 +111,10 @@ esp_err_t mw_set_arm( uint16_t value, mw_frame_t *frame )
     if(frame == NULL){
         status = ESP_ERR_INVALID_ARG;
     }else{
-       if(value < 1000U){
-            value = 1000U;
-        }else if(value > 2000U){
-            value = 2000U;
+       if(value < MW_MIN_VALUE){
+            value = MW_MIN_VALUE;
+        }else if(value > MW_MAX_VALUE){
+            value = MW_MAX_VALUE;
         }
 
         frame->data[13] = (uint8_t) value;
@@ -156,13 +156,13 @@ esp_err_t mw_toggle_arm( mw_frame_t *frame )
         return ESP_ERR_INVALID_ARG;
     }else{
         // If disarmed -> arm
-        if( (frame->data[13] == (uint8_t) 1000U) && 
-            (frame->data[14] == (uint8_t) (1000U >> 8U)) ){
+        if( (frame->data[13] == (uint8_t) MW_MIN_VALUE) && 
+            (frame->data[14] == (uint8_t) (MW_MIN_VALUE >> 8U)) ){
             
-            mw_set_arm(2000U, frame);
+            mw_set_arm(MW_MAX_VALUE, frame);
 
         }else{ // Safe state -> disarm
-            mw_set_arm(1000U, frame);
+            mw_set_arm(MW_MIN_VALUE, frame);
         }
         mw_set_crc(frame);
         status = ESP_OK;
@@ -185,15 +185,15 @@ esp_err_t mw_toggle_arm( mw_frame_t *frame )
         frame->data[2] = (uint8_t) '<';
             
         //Size and Type
-        frame->data[3] = 10U;     // length
-        frame->data[4] = 200U;    // type
+        frame->data[3] = MW_MSP_SET_RAW_RC_TYPE;     // length
+        frame->data[4] = MW_MSP_SET_RAW_RC_LEN;    // type
 
         //Payload init values
-        mw_set_roll(1500U, frame);
-        mw_set_pitch(1500U, frame);
-        mw_set_throttle(1000U, frame);
-        mw_set_yaw(1500U, frame);
-        mw_set_arm(1000U, frame);
+        mw_set_roll(MW_MID_VALUE, frame);
+        mw_set_pitch(MW_MID_VALUE, frame);
+        mw_set_yaw(MW_MID_VALUE, frame);
+        mw_set_throttle(MW_MIN_VALUE, frame);
+        mw_set_arm(MW_MIN_VALUE, frame);
 
         frame->len = MW_PROTO_FRAME_LEN;
         status = ESP_OK;
