@@ -1,10 +1,10 @@
 set(COMPONENT_SRCS "main.c"
-                    "../components/joystick/src/joystick.c"
+                    "../components/controller/src/controller.c"
                     "../components/mw_proto/src/mw_proto.c"
 )
 
 set(COMPONENT_ADD_INCLUDEDIRS "."
-                            "../components/joystick"
+                            "../components/controller"
                             "../components/mw_proto"
 )
 
