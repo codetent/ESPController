@@ -6,6 +6,7 @@
 #include "freertos/task.h"
 #include "controller.h"
 #include "mw_proto.h"
+#include "esp_log.h"
 
 /* -------------------------------------------------------------------------- */
 /*                                   DEFINES                                  */
