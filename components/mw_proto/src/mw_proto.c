@@ -11,71 +11,166 @@
 /*                        FUNCTIONS (EXTERNAL LINKAGE)                        */
 /* -------------------------------------------------------------------------- */
 
-void mw_set_roll( uint16_t value, mw_frame_t *frame )
-{
-    frame->data[5] = (uint8_t) value;
-    frame->data[6] = (uint8_t) (value >> 8);
-    mw_ser_crc(frame);
-}
-
-void mw_set_pitch( uint16_t value, mw_frame_t *frame )
-{
-    frame->data[7] = (uint8_t) value;
-    frame->data[8] = (uint8_t) (value >> 8);
-    mw_ser_crc(frame);
-}
-
-void mw_set_throttle( uint16_t value, mw_frame_t *frame )
-{
-    frame->data[9] = (uint8_t) value;
-    frame->data[10] = (uint8_t) (value >> 8);
-    mw_ser_crc(frame);
-}
-
-void mw_set_yaw( uint16_t value, mw_frame_t *frame )
-{
-    frame->data[11] = (uint8_t) value;
-    frame->data[12] = (uint8_t) (value >> 8);
-    mw_ser_crc(frame);
-}
-
-void mw_set_arm( uint16_t value, mw_frame_t *frame )
-{
-    frame->data[13] = (uint8_t) value;
-    frame->data[14] = (uint8_t) (value >> 8);
-    mw_ser_crc(frame);
-}
-
-void mw_ser_crc( mw_frame_t *frame )
+esp_err_t mw_set_roll( uint16_t value, mw_frame_t *frame )
 {   
+    //Check input
+    if(frame == NULL){
+        return ESP_ERR_INVALID_ARG;
+    }
+    if(value < 1000U){
+        value = 1000U;
+    }else if(value > 2000U){
+        value = 2000U;
+    }
+
+    frame->data[5] = (uint8_t) value;
+    frame->data[6] = (uint8_t) (value >> 8U);
+    mw_set_crc(frame);
+
+    return ESP_OK;
+}
+
+esp_err_t mw_set_pitch( uint16_t value, mw_frame_t *frame )
+{
+    //Check input
+    if(frame == NULL){
+        return ESP_ERR_INVALID_ARG;
+    }
+    if(value < 1000U){
+        value = 1000U;
+    }else if(value > 2000U){
+        value = 2000U;
+    }
+
+    frame->data[7] = (uint8_t) value;
+    frame->data[8] = (uint8_t) (value >> 8U);
+    mw_set_crc(frame);
+
+    return ESP_OK;
+}
+
+esp_err_t mw_set_throttle( uint16_t value, mw_frame_t *frame )
+{
+    //Check input
+    if(frame == NULL){
+        return ESP_ERR_INVALID_ARG;
+    }
+    if(value < 1000U){
+        value = 1000U;
+    }else if(value > 2000U){
+        value = 2000U;
+    }
+
+    // Set bytes
+    frame->data[9] = (uint8_t) value;
+    frame->data[10] = (uint8_t) (value >> 8U);
+    mw_set_crc(frame);
+
+    return ESP_OK;
+}
+
+esp_err_t mw_set_yaw( uint16_t value, mw_frame_t *frame )
+{
+    //Check input
+    if(frame == NULL){
+        return ESP_ERR_INVALID_ARG;
+    }
+    if(value < 1000U){
+        value = 1000U;
+    }else if(value > 2000U){
+        value = 2000U;
+    }
+
+    // Set bytes
+    frame->data[11] = (uint8_t) value;
+    frame->data[12] = (uint8_t) (value >> 8U);
+    mw_set_crc(frame);
+
+    return ESP_OK;
+}
+
+esp_err_t mw_set_arm( uint16_t value, mw_frame_t *frame )
+{
+    // Check input
+    if(frame == NULL){
+        return ESP_ERR_INVALID_ARG;
+    }
+    if(value < 1000U){
+        value = 1000U;
+    }else if(value > 2000U){
+        value = 2000U;
+    }
+
+    // Set bytes
+    frame->data[13] = (uint8_t) value;
+    frame->data[14] = (uint8_t) (value >> 8U);
+    mw_set_crc(frame);
+
+    return ESP_OK;
+}
+
+esp_err_t mw_set_crc( mw_frame_t *frame )
+{   
+    // Check input
+    if(frame == NULL){
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // Set bytes
     uint8_t crc = 0;
     for(int i = 3; i < 15; i++){
         crc = crc ^ frame->data[i];
     }
     frame->data[15] = crc;
+
+    return ESP_OK;
 }
 
- mw_frame_t get_new_mw_frame( void )
+esp_err_t mw_toggle_arm( mw_frame_t *frame )
+{   
+    // Check input
+    if(frame == NULL){
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // If disarmed -> arm
+    if( (frame->data[13] == (uint8_t) 1000U) && 
+        (frame->data[14] == (uint8_t) (1000U >> 8U)) ){
+        
+        mw_set_arm(2000U, frame);
+
+    }else{ // Safe state -> disarm
+        mw_set_arm(1000U, frame);
+    }
+    mw_set_crc(frame);
+
+    return ESP_OK;
+}
+
+ esp_err_t init_mw_frame( mw_frame_t *frame )
  {
-    mw_frame_t frame;
+    //Check input
+    if(frame == NULL){
+        return ESP_ERR_INVALID_ARG;
+    }
 
     //Preamble
-    frame.data[0] = (uint8_t) '$';
-    frame.data[1] = (uint8_t) 'M';
-    frame.data[2] = (uint8_t) '<';
+    frame->data[0] = (uint8_t) '$';
+    frame->data[1] = (uint8_t) 'M';
+    frame->data[2] = (uint8_t) '<';
         
     //Size and Type
-    frame.data[3] = 10U;     // length
-    frame.data[4] = 200U;    // type
+    frame->data[3] = 10U;     // length
+    frame->data[4] = 200U;    // type
 
     //Payload init values
-    mw_set_roll(1500, &frame);
-    mw_set_pitch(1500, &frame);
-    mw_set_throttle(1000, &frame);
-    mw_set_yaw(1500, &frame);
-    mw_set_arm(1000, &frame);
+    mw_set_roll(1500U, frame);
+    mw_set_pitch(1500U, frame);
+    mw_set_throttle(1000U, frame);
+    mw_set_yaw(1500U, frame);
+    mw_set_arm(1000U, frame);
 
-    frame.len = FRAME_LEN;
+    frame->len = MW_PROTO_FRAME_LEN;
     
-    return frame;
+    return ESP_OK;
  }
