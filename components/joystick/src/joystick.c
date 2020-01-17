@@ -18,11 +18,13 @@ esp_err_t joystick_configure(joystick_t *joystick)
     gpio_config_t io_conf = {
         .intr_type = GPIO_PIN_INTR_DISABLE,
         .mode = GPIO_MODE_INPUT,
-        .pull_down_en = 0U,
-        .pull_up_en = 1U
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .pull_up_en = GPIO_PULLUP_ENABLE
     };
 
-    io_conf.pin_bit_mask = (1ULL << (uint32_t)joystick->config.z_gpio_num);
+    io_conf.pin_bit_mask = (1ULL << (uint32_t)joystick->config.arm_gpio_num) |
+                        (1ULL << (uint32_t)joystick->config.thr_down_gpio_num) |
+                        (1ULL << (uint32_t)joystick->config.thr_up_gpio_num);
 
     if ((status = gpio_config(&io_conf)) == ESP_OK)
     {
@@ -38,7 +40,9 @@ esp_err_t joystick_configure(joystick_t *joystick)
                     joystick->y_origin = joystick->y_value;
                     joystick->x_value = 0U;
                     joystick->y_value = 0U;
-                    joystick->z_value = 0U;
+                    joystick->arm_value = 0U;
+                    joystick->thr_up_value = 0U;
+                    joystick->thr_down_value = 0U;
 
                     status = ESP_OK;
                 }
@@ -57,7 +61,9 @@ esp_err_t joystick_read_raw(joystick_t *joystick)
     {
         joystick->x_value = (uint32_t)adc1_get_raw(joystick->config.x_adc_channel);
         joystick->y_value = (uint32_t)adc1_get_raw(joystick->config.y_adc_channel);
-        joystick->z_value = (uint32_t)gpio_get_level(joystick->config.z_gpio_num);
+        joystick->arm_value = (uint32_t)gpio_get_level(joystick->config.arm_gpio_num);
+        joystick->thr_down_value = (uint32_t)gpio_get_level(joystick->config.thr_down_gpio_num);
+        joystick->thr_up_value = (uint32_t)gpio_get_level(joystick->config.thr_up_gpio_num);
 
         status = ESP_OK;
     }

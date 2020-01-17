@@ -20,7 +20,9 @@ typedef enum {
 typedef struct {
     uint32_t x_value;
     uint32_t y_value;
-    uint32_t z_value;
+    uint32_t arm_value;
+    uint32_t thr_up_value;
+    uint32_t thr_down_value;
 
     uint32_t x_origin;
     uint32_t y_origin;
@@ -28,7 +30,9 @@ typedef struct {
     struct {
         adc1_channel_t x_adc_channel;
         adc1_channel_t y_adc_channel;
-        gpio_num_t z_gpio_num;
+        gpio_num_t arm_gpio_num;
+        gpio_num_t thr_up_gpio_num;
+        gpio_num_t thr_down_gpio_num;
     } config;
 
     bool _initialized;
