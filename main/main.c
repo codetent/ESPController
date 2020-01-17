@@ -21,6 +21,8 @@
 #define BUTTON_PRESSED 0U
 #define THROTTLE_STEP 50
 
+#define CTR_TASK_TAG "CTR_TASK"
+
 /* -------------------------------------------------------------------------- */
 /*                        FUNCTIONS (INTERNAL LINKAGE)                        */
 /* -------------------------------------------------------------------------- */
@@ -56,17 +58,13 @@ static void task_controller(void *args)
         // Get controller position
         controller_read_raw(&controller);
         controller_calc_pos(&controller, 100U, &position);
-
-        /*// Print result
-        printf("X: %d - %d Y: %d - %d ARM: %d, THR_DOWN: %d, THR_UP: %d\n", position.x_position, position.x_delta, position.y_position, position.y_delta,
-                                                 controller.arm_value, controller.thr_down_value, controller.thr_up_value); */
         
         // Button check if pressed
         if(controller.arm_value && !last_arm_value){
-            printf("ARM pressed!\n");
+            ESP_LOGI(CTR_TASK_TAG, "ARM pressed!\n");
         }
         if(controller.thr_down_value && !last_thr_down_value){
-            printf("THR_DOWN pressed!\n");
+            ESP_LOGI(CTR_TASK_TAG, "THR_DOWN pressed!\n");
             if((throttle - THROTTLE_STEP) <= MW_MIN_VALUE){
                 throttle = MW_MIN_VALUE;
             }else{
@@ -75,7 +73,7 @@ static void task_controller(void *args)
             
         }
         if(controller.thr_up_value && !last_thr_up_value){
-            printf("THR_UP pressed!\n");
+            ESP_LOGI(CTR_TASK_TAG, "THR_UP pressed!\n");
             if((throttle + THROTTLE_STEP) >= MW_MAX_VALUE){
                 throttle = MW_MAX_VALUE;
             }else{
@@ -84,29 +82,28 @@ static void task_controller(void *args)
         }
 
         // Set Flight parameter
-        if(position.x_position == 0){
+        if(position.x_position == 0U){
             roll = MW_MID_VALUE;
-        }else if(position.x_position == 1){
-            roll = MW_MID_VALUE - position.x_delta / 3;
-        }else if(position.x_position == 2){
-            roll = MW_MID_VALUE + position.x_delta / 3;
+        }else if(position.x_position == 1U){
+            roll = MW_MID_VALUE - position.x_delta / 3U;
+        }else if(position.x_position == 2U){
+            roll = MW_MID_VALUE + position.x_delta / 3U;
         }
 
-        if(position.y_position == 0){
+        if(position.y_position == 0U){
             pitch = MW_MID_VALUE;
-        }else if(position.y_position == 1){
-            pitch = MW_MID_VALUE - position.y_delta / 3;
-        }else if(position.y_position == 2){
-            pitch = MW_MID_VALUE + position.y_delta / 3;
+        }else if(position.y_position == 1U){
+            pitch = MW_MID_VALUE - position.y_delta / 3U;
+        }else if(position.y_position == 2U){
+            pitch = MW_MID_VALUE + position.y_delta / 3U;
         }
-
-        printf("ROLL: %d, PITCH: %d, THOTTLE: %d\n", roll, pitch, throttle);
+        ESP_LOGI(CTR_TASK_TAG, "ROLL: %d, PITCH: %d, THOTTLE: %d\n", roll, pitch, throttle);
         
         last_arm_value = controller.arm_value;
         last_thr_down_value = controller.thr_down_value;
         last_thr_up_value = controller.thr_up_value;
 
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(100U));
     }
 
     vTaskDelete(NULL);
