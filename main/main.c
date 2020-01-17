@@ -22,7 +22,7 @@
 /*                        FUNCTIONS (INTERNAL LINKAGE)                        */
 /* -------------------------------------------------------------------------- */
 
-static void task_interface(void *args)
+static void task_controller(void *args)
 {
     controller_t controller = {
         .config = {
@@ -34,6 +34,9 @@ static void task_interface(void *args)
         }
     };
     controller_position_t position = {0U};
+    uint8_t last_arm_value = 1U;
+    uint8_t last_thr_down_value = 1U;
+    uint8_t last_thr_up_value = 1U;
 
     // Configure periphery
     adc1_config_width(ADC_WIDTH_BIT_12);
@@ -48,6 +51,21 @@ static void task_interface(void *args)
         // Print result
         printf("X: %d - %d Y: %d - %d ARM: %d, THR_DOWN: %d, THR_UP: %d\n", position.x_position, position.x_delta, position.y_position, position.y_delta,
                                                  controller.arm_value, controller.thr_down_value, controller.thr_up_value);
+        
+        if(controller.arm_value && !last_arm_value){
+            printf("ARM pressed!\n");
+        }
+        if(controller.thr_down_value && !last_thr_down_value){
+            printf("THR_DOWN pressed!\n");
+        }
+        if(controller.thr_up_value && !last_thr_up_value){
+            printf("THR_UP pressed!\n");
+        }
+        
+        last_arm_value = controller.arm_value;
+        last_thr_down_value = controller.thr_down_value;
+        last_thr_up_value = controller.thr_up_value;
+
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 
@@ -64,7 +82,7 @@ void app_main()
     TaskHandle_t handle_task_interface = NULL;
 
     xTaskCreate(
-        task_interface,
+        task_controller,
         "INTERFACE",
         2048U,
         NULL,
