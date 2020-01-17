@@ -22,7 +22,7 @@ esp_err_t joystick_configure(joystick_t *joystick)
         .pull_up_en = 1U
     };
 
-    io_conf.pin_bit_mask = (1U << (uint32_t)joystick->config.z_gpio_num);
+    io_conf.pin_bit_mask = (1ULL << (uint32_t)joystick->config.z_gpio_num);
 
     if ((status = gpio_config(&io_conf)) == ESP_OK)
     {

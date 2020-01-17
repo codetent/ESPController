@@ -12,8 +12,8 @@
 /* -------------------------------------------------------------------------- */
 
 #define JOYSTICK_X_ADC_CH ADC_CHANNEL_0
-#define JOYSTICK_Y_ADC_CH ADC_CHANNEL_1
-#define JOYSTICK_Z_GPIO GPIO_NUM_27
+#define JOYSTICK_Y_ADC_CH ADC_CHANNEL_3
+#define JOYSTICK_Z_GPIO GPIO_NUM_34
 
 
 /* -------------------------------------------------------------------------- */
@@ -42,7 +42,7 @@ static void task_interface(void *args)
         joystick_calc_pos(&joystick, 100U, &position);
 
         // Print result
-        printf("X: %d - %d Y: %d - %d\n", position.x_position, position.x_delta, position.y_position, position.y_delta);
+        printf("X: %d - %d Y: %d - %d Z: %d\n", position.x_position, position.x_delta, position.y_position, position.y_delta, joystick.z_value);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 
