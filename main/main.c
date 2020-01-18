@@ -75,7 +75,9 @@ static esp_err_t get_name_from_eir(uint8_t *eir, char *bdname, uint8_t *bdname_l
             rmt_bdname = esp_bt_gap_resolve_eir_data(eir, ESP_BT_EIR_TYPE_SHORT_LOCAL_NAME, &rmt_bdname_len);
         }
 
-        if (rmt_bdname) {
+        if (rmt_bdname == NULL) {
+            status = ESP_FAIL;
+        }else{
             if (rmt_bdname_len > ESP_BT_GAP_MAX_BDNAME_LEN) {
                 rmt_bdname_len = ESP_BT_GAP_MAX_BDNAME_LEN;
             }
@@ -94,7 +96,7 @@ static esp_err_t get_name_from_eir(uint8_t *eir, char *bdname, uint8_t *bdname_l
     return status;
 }
 
-//GAP callback search for drone and conects t it
+// GAP callback search for drone and conects to it
 static void esp_bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
 {
     switch(event){
