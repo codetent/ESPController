@@ -229,18 +229,18 @@ static void task_controller(void *args)
         if(position.x_position == 0U){
             roll = MW_MID_VALUE;
         }else if(position.x_position == 1U){
-            roll = MW_MID_VALUE - position.x_delta / 3U;
+            roll = MW_MID_VALUE - position.x_delta / 4U;
         }else if(position.x_position == 2U){
-            roll = MW_MID_VALUE + position.x_delta / 3U;
+            roll = MW_MID_VALUE + position.x_delta / 4U;
         }
         ESP_ERROR_CHECK(mw_set_roll(roll, &mw_frame));
 
         if(position.y_position == 0U){
             pitch = MW_MID_VALUE;
         }else if(position.y_position == 1U){
-            pitch = MW_MID_VALUE - position.y_delta / 3U;
+            pitch = MW_MID_VALUE - position.y_delta / 4U;
         }else if(position.y_position == 2U){
-            pitch = MW_MID_VALUE + position.y_delta / 3U;
+            pitch = MW_MID_VALUE + position.y_delta / 4U;
         }
         ESP_ERROR_CHECK(mw_set_pitch(pitch, &mw_frame));
 
