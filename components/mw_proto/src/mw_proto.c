@@ -185,8 +185,8 @@ esp_err_t mw_toggle_arm( mw_frame_t *frame )
         frame->data[2] = (uint8_t) '<';
             
         //Size and Type
-        frame->data[3] = MW_MSP_SET_RAW_RC_TYPE;     // length
-        frame->data[4] = MW_MSP_SET_RAW_RC_LEN;    // type
+        frame->data[3] = MW_MSP_SET_RAW_RC_LEN;     // length
+        frame->data[4] = MW_MSP_SET_RAW_RC_TYPE;    // type
 
         //Payload init values
         mw_set_roll(MW_MID_VALUE, frame);

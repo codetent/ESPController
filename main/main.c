@@ -1,12 +1,25 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
 #include "controller.h"
 #include "mw_proto.h"
+
 #include "esp_log.h"
+#include "esp_bt.h"
+
+#include "nvs.h"
+#include "nvs_flash.h"
+
+#include "esp_bt_main.h"
+#include "esp_gap_bt_api.h"
+#include "esp_bt_device.h"
+#include "esp_spp_api.h"
 #include "esp_err.h"
 
 /* -------------------------------------------------------------------------- */
@@ -23,15 +36,136 @@
 #define BUTTON_PRESSED 0U
 #define THROTTLE_STEP 50U
 
+#define BT_DEVICE_DRONE "XMC-Bluetooth"
+
 #define CTR_TASK_TAG "CTR_TASK"
+#define BT_TASK_TAG "BT_TASK"
+#define APP_MAIN_TAG "APP_MAIN"
+
+static const esp_bt_inq_mode_t inq_mode = ESP_BT_INQ_MODE_GENERAL_INQUIRY;
+static const uint8_t inq_len = 30;
+static const uint8_t inq_num_rsps = 0;
+
+static esp_bd_addr_t peer_bd_addr;
+static uint8_t peer_bdname_len;
+static char peer_bdname[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
+
+static const esp_spp_sec_t sec_mask = ESP_SPP_SEC_NONE;
+static const esp_spp_role_t role_master = ESP_SPP_ROLE_SLAVE;
+static bool bt_connected = false;
+static bool arm_enabled = false;
+static  uint32_t spp_handle;
+static mw_frame_t mw_frame;
+
 
 /* -------------------------------------------------------------------------- */
 /*                        FUNCTIONS (INTERNAL LINKAGE)                        */
 /* -------------------------------------------------------------------------- */
 
+// EIR data to board name and len
+static esp_err_t get_name_from_eir(uint8_t *eir, char *bdname, uint8_t *bdname_len)
+{
+    esp_err_t status = ESP_FAIL;
+    uint8_t *rmt_bdname = NULL;
+    uint8_t rmt_bdname_len = 0U;
+
+    if (eir){
+        rmt_bdname = esp_bt_gap_resolve_eir_data(eir, ESP_BT_EIR_TYPE_CMPL_LOCAL_NAME, &rmt_bdname_len);
+        if (!rmt_bdname) {
+            rmt_bdname = esp_bt_gap_resolve_eir_data(eir, ESP_BT_EIR_TYPE_SHORT_LOCAL_NAME, &rmt_bdname_len);
+        }
+
+        if (rmt_bdname == NULL) {
+            status = ESP_FAIL;
+        }else{
+            if (rmt_bdname_len > ESP_BT_GAP_MAX_BDNAME_LEN) {
+                rmt_bdname_len = ESP_BT_GAP_MAX_BDNAME_LEN;
+            }
+
+            if (bdname) {
+                memcpy(bdname, rmt_bdname, rmt_bdname_len);
+                bdname[rmt_bdname_len] = '\0';
+            }
+            if (bdname_len) {
+                *bdname_len = rmt_bdname_len;
+            }
+            status = ESP_OK;
+        }
+    }
+
+    return status;
+}
+
+// GAP callback search for drone and conects to it
+static void esp_bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
+{
+    switch(event){
+    case ESP_BT_GAP_DISC_RES_EVT:
+        for (int i = 0U; i < param->disc_res.num_prop; i++){
+            // Check if gat type 
+            if (param->disc_res.prop[i].type == ESP_BT_GAP_DEV_PROP_EIR && 
+                ESP_OK == get_name_from_eir(param->disc_res.prop[i].val, peer_bdname, &peer_bdname_len)){
+                esp_log_buffer_char(BT_TASK_TAG, peer_bdname, peer_bdname_len);
+                //Check if name is XMC_Bluetooth
+                if (strlen(BT_DEVICE_DRONE) == peer_bdname_len && 
+                    strncmp(peer_bdname, BT_DEVICE_DRONE, peer_bdname_len) == 0U) {
+                    // Start spp discovery
+                    memcpy(peer_bd_addr, param->disc_res.bda, ESP_BD_ADDR_LEN);
+                    esp_spp_start_discovery(peer_bd_addr);
+                    esp_bt_gap_cancel_discovery();
+                }
+            }
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+// Serial port profile callback
+static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
+{   
+    switch (event) {
+    case ESP_SPP_INIT_EVT:
+        ESP_LOGI(BT_TASK_TAG, "ESP_SPP_INIT_EVT");
+        esp_bt_dev_set_device_name("ESP32");
+        esp_bt_gap_set_scan_mode(ESP_BT_SCAN_MODE_CONNECTABLE_DISCOVERABLE);
+        esp_bt_gap_start_discovery(inq_mode, inq_len, inq_num_rsps);
+
+        break;
+    case ESP_SPP_DISCOVERY_COMP_EVT:
+        // Connect to SPP server
+        ESP_LOGI(BT_TASK_TAG, "ESP_SPP_DISCOVERY_COMP_EVT");
+        if (param->disc_comp.status == ESP_SPP_SUCCESS) {
+            esp_spp_connect(sec_mask, role_master, param->disc_comp.scn[0], peer_bd_addr);
+        }
+        break;
+    case ESP_SPP_OPEN_EVT:
+        // Set handle
+        ESP_LOGI(BT_TASK_TAG, "ESP_SPP_OPEN_EVT");
+        spp_handle = param->open.handle;
+        bt_connected = true;
+        arm_enabled = true;
+        break;
+    case ESP_SPP_CLOSE_EVT:
+        // Set handle to NULL
+        ESP_LOGI(BT_TASK_TAG, "ESP_SPP_CLOSE_EVT");
+        if(spp_handle == param->close.handle){
+            bt_connected = false;
+            arm_enabled = false;
+        }
+
+        break;
+    case ESP_SPP_WRITE_EVT:
+        ESP_LOGI(BT_TASK_TAG, "ESP_SPP_WRITE_EVT");
+        break;
+    default:
+        break;
+    }
+}
+
 static void task_controller(void *args)
 {
-    mw_frame_t *mw_frame = (mw_frame_t*) args;
     controller_t controller = {
         .config = {
             .x_adc_channel = CONTROLLER_X_ADC_CH,
@@ -65,7 +199,9 @@ static void task_controller(void *args)
         // Button check if pressed
         if(controller.arm_value && !last_arm_value){
             ESP_LOGI(CTR_TASK_TAG, "ARM pressed!");
-            ESP_ERROR_CHECK(mw_toggle_arm(mw_frame));
+            if(arm_enabled){
+                ESP_ERROR_CHECK(mw_toggle_arm(&mw_frame));
+            }
         }
         if(controller.thr_down_value && !last_thr_down_value){
             ESP_LOGI(CTR_TASK_TAG, "THR_DOWN pressed!");
@@ -74,7 +210,7 @@ static void task_controller(void *args)
             }else{
                 throttle -= THROTTLE_STEP;
             }
-            ESP_ERROR_CHECK(mw_set_throttle(throttle, mw_frame));
+            ESP_ERROR_CHECK(mw_set_throttle(throttle, &mw_frame));
         }
         if(controller.thr_up_value && !last_thr_up_value){
             ESP_LOGI(CTR_TASK_TAG, "THR_UP pressed!");
@@ -83,7 +219,7 @@ static void task_controller(void *args)
             }else{
                 throttle += THROTTLE_STEP;
             }
-            ESP_ERROR_CHECK(mw_set_throttle(throttle, mw_frame));
+            ESP_ERROR_CHECK(mw_set_throttle(throttle, &mw_frame));
         }
         last_arm_value = controller.arm_value;
         last_thr_down_value = controller.thr_down_value;
@@ -93,23 +229,68 @@ static void task_controller(void *args)
         if(position.x_position == 0U){
             roll = MW_MID_VALUE;
         }else if(position.x_position == 1U){
-            roll = MW_MID_VALUE - position.x_delta / 3U;
+            roll = MW_MID_VALUE - position.x_delta / 4U;
         }else if(position.x_position == 2U){
-            roll = MW_MID_VALUE + position.x_delta / 3U;
+            roll = MW_MID_VALUE + position.x_delta / 4U;
         }
-        ESP_ERROR_CHECK(mw_set_roll(roll, mw_frame));
+        ESP_ERROR_CHECK(mw_set_roll(roll, &mw_frame));
 
         if(position.y_position == 0U){
             pitch = MW_MID_VALUE;
         }else if(position.y_position == 1U){
-            pitch = MW_MID_VALUE - position.y_delta / 3U;
+            pitch = MW_MID_VALUE - position.y_delta / 4U;
         }else if(position.y_position == 2U){
-            pitch = MW_MID_VALUE + position.y_delta / 3U;
+            pitch = MW_MID_VALUE + position.y_delta / 4U;
         }
-        ESP_ERROR_CHECK(mw_set_pitch(pitch, mw_frame));
+        ESP_ERROR_CHECK(mw_set_pitch(pitch, &mw_frame));
 
-        ESP_LOGI(CTR_TASK_TAG, "ROLL: %d, PITCH: %d, THOTTLE: %d\n", roll, pitch, throttle);
+        //ESP_LOGI(CTR_TASK_TAG, "ROLL: %d, PITCH: %d, THOTTLE: %d\n", roll, pitch, throttle);
 
+        vTaskDelay(pdMS_TO_TICKS(100U));
+    }
+
+    vTaskDelete(NULL);
+}
+
+static void task_bt(void *args)
+{
+    esp_spp_mode_t esp_spp_mode = ESP_SPP_MODE_CB;
+    esp_err_t ret;
+
+    // initializing non volatile storage
+    ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK( ret );
+
+    // Init bluetooth
+
+    ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_BLE));
+
+    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_bt_controller_init(&bt_cfg));
+
+    ESP_ERROR_CHECK(esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT));
+
+    ESP_ERROR_CHECK(esp_bluedroid_init());
+
+    ESP_ERROR_CHECK(esp_bluedroid_enable());
+
+    ESP_ERROR_CHECK(esp_bt_gap_register_callback(esp_bt_gap_cb));
+
+    ESP_ERROR_CHECK(esp_spp_register_callback(esp_spp_cb));
+
+    ESP_ERROR_CHECK(esp_spp_init(esp_spp_mode));
+    
+
+    while (1U) 
+    {
+        if(bt_connected){
+            ESP_ERROR_CHECK(esp_spp_write(spp_handle, MW_PROTO_FRAME_LEN, mw_frame.data));
+            esp_log_buffer_hex(BT_TASK_TAG, mw_frame.data, MW_PROTO_FRAME_LEN);
+        }
         vTaskDelay(pdMS_TO_TICKS(100U));
     }
 
@@ -123,17 +304,32 @@ static void task_controller(void *args)
 
 void app_main()
 {
-    TaskHandle_t handle_task_interface = NULL;
-    mw_frame_t mw_frame;
+    ESP_LOGI(APP_MAIN_TAG, "App started!");
+
+    TaskHandle_t handle_task_controller = NULL;
+    TaskHandle_t handle_task_bt = NULL;
 
     ESP_ERROR_CHECK(init_mw_frame(&mw_frame));
 
-    xTaskCreate(
+    if( pdPASS != xTaskCreate(
         task_controller,
-        "INTERFACE",
-        2048U,
-        (void*) &mw_frame,
+        "CONTROLLER",
+        4056U,
+        NULL,
         tskIDLE_PRIORITY,
-        &handle_task_interface
-    );
+        &handle_task_controller
+    )){
+        ESP_LOGE(APP_MAIN_TAG, "Failed to create Task Controller");
+    }
+
+    if( pdPASS != xTaskCreate(
+        task_bt,
+        "BT",
+        2048U,
+        NULL,
+        tskIDLE_PRIORITY,
+        &handle_task_bt
+    )){
+        ESP_LOGE(APP_MAIN_TAG, "Failed to create Task BT");
+    }
 }
